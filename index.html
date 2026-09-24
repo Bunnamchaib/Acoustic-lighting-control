@@ -1,1 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASSY Audio Protocol Receiver</title>
+  <style>
+    :root {
+      --navy: #17324d;
+      --blue: #1677e8;
+      --bg: #f3f6f9;
+      --panel: #ffffff;
+      --text: #172b45;
+      --muted: #6b7c93;
+      --border: #d5dee8;
+      --green: #178754;
+      --red: #d64545;
+      --amber: #a66300;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 15px;
+    }
+    header {
+      min-height: 64px;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      background: var(--navy);
+      color: #fff;
+      border-bottom: 3px solid var(--blue);
+    }
+    header h1 { margin: 0; font-size: 21px; letter-spacing: 0; }
+    header p { margin: 3px 0 0; color: #c9d7e6; font-size: 13px; }
+    .protocol-badge {
+      padding: 7px 10px;
+      border: 1px solid #71869c;
+      border-radius: 4px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    main { width: min(1180px, calc(100% - 32px)); margin: 20px auto 32px; }
+    .toolbar, .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+    button {
+      min-height: 40px;
+      padding: 8px 16px;
+      border: 1px solid #b8c7d8;
+      border-radius: 4px;
+      background: #fff;
+      color: var(--text);
+      font: 600 14px "Segoe UI", Arial, sans-serif;
+      cursor: pointer;
+    }
+    button:hover { background: #edf4fb; border-color: #8aa9c8; }
+    button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    button.primary:hover { background: #0f66cc; }
+    button:disabled { cursor: default; opacity: .48; }
+    .sensitivity {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    input[type="range"] { width: 150px; accent-color: var(--blue); }
+    .status-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 46px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      background: #eef5fc;
+      border: 1px solid #c8d7e6;
+      border-left: 4px solid var(--blue);
+      color: var(--text);
+    }
+    .status-line.success { background: #edf8f2; border-color: #b9dfcb; border-left-color: var(--green); }
+    .status-line.error { background: #fff1f1; border-color: #efc2c2; border-left-color: var(--red); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+    .listening .dot { background: var(--green); box-shadow: 0 0 0 4px rgba(23,135,84,.13); }
+    .grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr); gap: 14px; }
+    .panel { padding: 18px; min-width: 0; }
+    .panel h2 { margin: 0 0 14px; font-size: 17px; }
+    .meter-shell { height: 12px; overflow: hidden; background: #e6edf4; border: 1px solid var(--border); border-radius: 3px; }
+    .meter { width: 0; height: 100%; background: var(--green); transition: width 80ms linear; }
+    .metric-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: center; margin-top: 14px; }
+    .metric-row > span:first-child { color: var(--muted); }
+    code, .mono { font-family: Consolas, "Courier New", monospace; }
+    .symbol-stream {
+      min-height: 52px;
+      padding: 12px;
+      overflow-wrap: anywhere;
+      background: #0f1c2b;
+      color: #d8e8f8;
+      border-radius: 4px;
+      font: 18px Consolas, monospace;
+      line-height: 1.5;
+    }
+    .current-symbol {
+      display: inline-grid;
+      place-items: center;
+      width: 50px;
+      height: 50px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: var(--blue);
+      font: 700 26px Consolas, monospace;
+    }
+    .command {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .command .cell { min-height: 80px; padding: 12px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .command .cell:nth-child(3n) { border-right: 0; }
+    .command .cell:nth-last-child(-n+3) { border-bottom: 0; }
+    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    .value { margin-top: 5px; font-size: 22px; font-weight: 700; overflow-wrap: anywhere; }
+    .value.good { color: var(--green); }
+    .value.bad { color: var(--red); }
+    .raw-frame { margin-top: 14px; padding: 10px 12px; background: #f6f8fb; border: 1px solid var(--border); overflow-wrap: anywhere; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; font-size: 13px; }
+    th { color: var(--muted); background: #f7f9fb; }
+    .empty { padding: 20px 8px; color: var(--muted); text-align: center; }
+    .footnote { margin: 14px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    @media (max-width: 780px) {
+      header { align-items: flex-start; padding: 12px 16px; }
+      .protocol-badge { display: none; }
+      main { width: min(100% - 20px, 1180px); margin-top: 10px; }
+      .grid { grid-template-columns: 1fr; }
+      .sensitivity { width: 100%; margin-left: 0; }
+      input[type="range"] { flex: 1; }
+      .command { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .command .cell, .command .cell:nth-child(3n) { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+      .command .cell:nth-child(2n) { border-right: 0; }
+      .command .cell:nth-last-child(-n+2) { border-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>ASSY Audio Protocol Receiver</h1>
+      <p>Microphone decoder for acoustic lighting commands</p>
+    </div>
+    <div class="protocol-badge">DTMF · AD + 7 bytes · CRC-8</div>
+  </header>
 
+  <main>
+    <section class="toolbar" aria-label="Receiver controls">
+      <button id="startButton" class="primary">Start microphone</button>
+      <button id="stopButton" disabled>Stop</button>
+      <button id="testButton">Test P2 decoder</button>
+      <button id="clearButton">Clear</button>
+      <label class="sensitivity">
+        Sensitivity <input id="sensitivity" type="range" min="1" max="100" value="72">
+        <strong id="sensitivityValue">72</strong>
+      </label>
+    </section>
+
+    <div id="statusLine" class="status-line">
+      <span class="dot" aria-hidden="true"></span>
+      <span id="statusText">Ready. Start the microphone, then play a communication signal.</span>
+    </div>
+
+    <div class="grid">
+      <div>
+        <section class="panel">
+          <h2>Live receiver</h2>
+          <div class="metric-row">
+            <span>Input level</span>
+            <div class="meter-shell"><div id="meter" class="meter"></div></div>
+          </div>
+          <div class="metric-row">
+            <span>Detected tone</span>
+            <span id="currentSymbol" class="current-symbol">–</span>
+          </div>
+          <div class="metric-row">
+            <span>Symbols</span>
+            <div id="symbolStream" class="symbol-stream">Waiting for signal…</div>
+          </div>
+          <div class="metric-row">
+            <span>Audio format</span>
+            <span id="audioFormat" class="mono">Not started</span>
+          </div>
+        </section>
+
+        <section class="panel" style="margin-top:14px">
+          <h2>Recent valid commands</h2>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Time</th><th>Code</th><th>Mode</th><th>Wait</th><th>ON</th><th>OFF</th><th>Repeat</th></tr></thead>
+              <tbody id="historyBody"><tr><td colspan="7" class="empty">No valid command received</td></tr></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <h2>Decoded command</h2>
+        <div class="command">
+          <div class="cell"><div class="label">Code</div><div id="codeValue" class="value">–</div></div>
+          <div class="cell"><div class="label">Mode</div><div id="modeValue" class="value">–</div></div>
+          <div class="cell"><div class="label">CRC</div><div id="crcValue" class="value">–</div></div>
+          <div class="cell"><div class="label">Wait before capture</div><div id="waitValue" class="value">–</div></div>
+          <div class="cell"><div class="label">Light ON</div><div id="onValue" class="value">–</div></div>
+          <div class="cell"><div class="label">Light OFF / Repeat</div><div id="offValue" class="value">–</div></div>
+        </div>
+        <div id="rawFrame" class="raw-frame mono">Frame: –</div>
+        <p class="footnote">
+          The receiver accepts a frame only after preamble <b>A D</b> and a valid CRC-8.
+          For microphone access, upload this file to HTTPS or serve it from localhost.
+        </p>
+      </section>
+    </div>
+  </main>
+
+  <script id="protocol-core">
+  (function (global) {
+    "use strict";
+
+    const LOW_FREQUENCIES = [697, 770, 852, 941];
+    const HIGH_FREQUENCIES = [1209, 1336, 1477, 1633];
+    const HEX = "0123456789ABCDEF";
+    const MODE_NAMES = ["Normal", "Pulse", "Blink", "Unknown"];
+
+    function crc8(values) {
+      let crc = 0;
+      for (const value of values) {
+        crc ^= value;
+        for (let bit = 0; bit < 8; bit += 1) {
+          crc = (crc & 0x80) ? (((crc << 1) ^ 0x07) & 0xff) : ((crc << 1) & 0xff);
+        }
+      }
+      return crc;
+    }
+
+    function decodeCharacter(value) {
+      if (value >= 0 && value <= 9) return String(value);
+      if (value >= 10 && value <= 35) return String.fromCharCode(65 + value - 10);
+      return "?";
+    }
+
+    function decodeFrame(values) {
+      const bytes = Array.from(values);
+      if (bytes.length !== 7) throw new Error("A command frame must contain exactly 7 bytes.");
+      const mode = bytes[5] & 0x03;
+      const repeat = (bytes[5] >> 2) & 0x0f;
+      const expectedCrc = crc8(bytes.slice(0, 6));
+      return {
+        bytes,
+        code: decodeCharacter(bytes[0]) + decodeCharacter(bytes[1]),
+        waitMs: bytes[2] * 100,
+        onMs: bytes[3] * 100,
+        offMs: bytes[4] * 100,
+        mode,
+        modeName: MODE_NAMES[mode] || "Unknown",
+        repeat,
+        expectedCrc,
+        receivedCrc: bytes[6],
+        crcValid: expectedCrc === bytes[6],
+        hex: bytes.map(value => value.toString(16).toUpperCase().padStart(2, "0")).join(" ")
+      };
+    }
+
+    function decodeSymbols(symbols) {
+      const clean = Array.from(typeof symbols === "string" ? symbols : symbols.join(""), value => value.toUpperCase())
+        .filter(value => HEX.includes(value));
+      let start = -1;
+      for (let index = 0; index + 1 < clean.length; index += 1) {
+        if (clean[index] === "A" && clean[index + 1] === "D" && clean.length - index >= 16) start = index;
+      }
+      if (start < 0) throw new Error("Complete AD preamble and 7-byte frame not found.");
+      const payload = clean.slice(start + 2, start + 16);
+      const bytes = [];
+      for (let index = 0; index < payload.length; index += 2) {
+        bytes.push(parseInt(payload[index] + payload[index + 1], 16));
+      }
+      return decodeFrame(bytes);
+    }
+
+    function goertzelPower(samples, frequency, sampleRate) {
+      const coefficient = 2 * Math.cos(2 * Math.PI * frequency / sampleRate);
+      let previous = 0;
+      let previous2 = 0;
+      for (let index = 0; index < samples.length; index += 1) {
+        const current = samples[index] + coefficient * previous - previous2;
+        previous2 = previous;
+        previous = current;
+      }
+      return Math.max(0, previous2 * previous2 + previous * previous - coefficient * previous * previous2);
+    }
+
+    function detectTone(input, sampleRate, sensitivity) {
+      const samples = Array.from(input);
+      if (samples.length < 128) return { symbol: null, rms: 0, confidence: 0 };
+      const mean = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+      let sumSquares = 0;
+      const centered = new Float32Array(samples.length);
+      for (let index = 0; index < samples.length; index += 1) {
+        centered[index] = samples[index] - mean;
+        sumSquares += centered[index] * centered[index];
+      }
+      const rms = Math.sqrt(sumSquares / samples.length);
+      const levelRequired = 0.05 - Math.min(100, Math.max(1, sensitivity || 72)) * 0.00044;
+      if (rms < Math.max(0.004, levelRequired)) return { symbol: null, rms, confidence: 0 };
+
+      const lowPowers = LOW_FREQUENCIES.map(frequency => goertzelPower(centered, frequency, sampleRate));
+      const highPowers = HIGH_FREQUENCIES.map(frequency => goertzelPower(centered, frequency, sampleRate));
+      const rankedLow = lowPowers.map((power, index) => ({ power, index })).sort((a, b) => b.power - a.power);
+      const rankedHigh = highPowers.map((power, index) => ({ power, index })).sort((a, b) => b.power - a.power);
+      const lowDominance = rankedLow[0].power / Math.max(1e-12, rankedLow[1].power);
+      const highDominance = rankedHigh[0].power / Math.max(1e-12, rankedHigh[1].power);
+      const twist = rankedLow[0].power / Math.max(1e-12, rankedHigh[0].power);
+      const confidence = Math.min(lowDominance, highDominance);
+      if (confidence < 1.7 || twist < 0.12 || twist > 8.5) return { symbol: null, rms, confidence };
+      return {
+        symbol: HEX[rankedLow[0].index * 4 + rankedHigh[0].index],
+        rms,
+        confidence,
+        lowFrequency: LOW_FREQUENCIES[rankedLow[0].index],
+        highFrequency: HIGH_FREQUENCIES[rankedHigh[0].index]
+      };
+    }
+
+    global.AudioProtocol = {
+      LOW_FREQUENCIES,
+      HIGH_FREQUENCIES,
+      crc8,
+      decodeFrame,
+      decodeSymbols,
+      detectTone
+    };
+  })(typeof window !== "undefined" ? window : globalThis);
+  </script>
+
+  <script>
+  (function () {
+    "use strict";
+
+    const protocol = window.AudioProtocol;
+    const elements = Object.fromEntries([
+      "startButton", "stopButton", "testButton", "clearButton", "sensitivity", "sensitivityValue",
+      "statusLine", "statusText", "meter", "currentSymbol", "symbolStream", "audioFormat",
+      "historyBody", "codeValue", "modeValue", "crcValue", "waitValue", "onValue", "offValue", "rawFrame"
+    ].map(id => [id, document.getElementById(id)]));
+
+    let stream = null;
+    let audioContext = null;
+    let source = null;
+    let processor = null;
+    let silentGain = null;
+    let receivedSymbols = [];
+    let frameQueue = [];
+    let lastSymbol = null;
+    let lastEmitAt = -Infinity;
+    let lastToneAt = -Infinity;
+    let history = [];
+
+    function setStatus(message, kind) {
+      elements.statusText.textContent = message;
+      elements.statusLine.className = "status-line" + (kind ? " " + kind : "");
+      if (stream) elements.statusLine.classList.add("listening");
+    }
+
+    function setButtons(listening) {
+      elements.startButton.disabled = listening;
+      elements.stopButton.disabled = !listening;
+    }
+
+    function updateStream() {
+      elements.symbolStream.textContent = receivedSymbols.length ? receivedSymbols.slice(-64).join(" ") : "Waiting for signal…";
+    }
+
+    function renderCommand(command) {
+      elements.codeValue.textContent = command.code;
+      elements.modeValue.textContent = command.modeName;
+      elements.crcValue.textContent = command.crcValid ? "VALID" : "FAILED";
+      elements.crcValue.className = "value " + (command.crcValid ? "good" : "bad");
+      elements.waitValue.textContent = command.waitMs + " ms";
+      elements.onValue.textContent = command.onMs + " ms";
+      elements.offValue.textContent = command.offMs + " ms / " + command.repeat;
+      elements.rawFrame.textContent = "Frame: " + command.hex;
+    }
+
+    function renderHistory() {
+      if (!history.length) {
+        elements.historyBody.innerHTML = '<tr><td colspan="7" class="empty">No valid command received</td></tr>';
+        return;
+      }
+      elements.historyBody.textContent = "";
+      for (const item of history) {
+        const row = document.createElement("tr");
+        const values = [item.time, item.code, item.modeName, item.waitMs + " ms", item.onMs + " ms", item.offMs + " ms", item.repeat];
+        for (const value of values) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.appendChild(cell);
+        }
+        elements.historyBody.appendChild(row);
+      }
+    }
+
+    function acceptCommand(command, sourceName) {
+      renderCommand(command);
+      if (!command.crcValid) {
+        setStatus("Frame received, but CRC failed. Waiting for a clean signal.", "error");
+        return;
+      }
+      history.unshift({ ...command, time: new Date().toLocaleTimeString() });
+      history = history.slice(0, 10);
+      renderHistory();
+      setStatus(sourceName + ": " + command.code + " · " + command.modeName + " · wait " + command.waitMs + " ms · ON " + command.onMs + " ms", "success");
+    }
+
+    function processFrameQueue() {
+      while (frameQueue.length >= 2) {
+        let preamble = -1;
+        for (let index = 0; index + 1 < frameQueue.length; index += 1) {
+          if (frameQueue[index] === "A" && frameQueue[index + 1] === "D") {
+            preamble = index;
+            break;
+          }
+        }
+        if (preamble < 0) {
+          frameQueue = frameQueue.slice(-1);
+          return;
+        }
+        if (preamble > 0) frameQueue.splice(0, preamble);
+        if (frameQueue.length < 16) {
+          setStatus("Preamble AD detected. Receiving command…");
+          return;
+        }
+        const candidate = frameQueue.slice(0, 16);
+        try {
+          const command = protocol.decodeSymbols(candidate);
+          renderCommand(command);
+          if (command.crcValid) {
+            frameQueue.splice(0, 16);
+            acceptCommand(command, "Valid acoustic command");
+          } else {
+            setStatus("CRC failed for frame " + command.hex + ". Resynchronizing.", "error");
+            frameQueue.shift();
+          }
+        } catch (error) {
+          setStatus(error.message, "error");
+          frameQueue.shift();
+        }
+      }
+    }
+
+    function emitSymbol(symbol, now) {
+      receivedSymbols.push(symbol);
+      receivedSymbols = receivedSymbols.slice(-96);
+      frameQueue.push(symbol);
+      frameQueue = frameQueue.slice(-48);
+      lastSymbol = symbol;
+      lastEmitAt = now;
+      lastToneAt = now;
+      elements.currentSymbol.textContent = symbol;
+      updateStream();
+      processFrameQueue();
+    }
+
+    function analyzeAudio(event) {
+      const samples = event.inputBuffer.getChannelData(0);
+      const sensitivity = Number(elements.sensitivity.value);
+      const detected = protocol.detectTone(samples, audioContext.sampleRate, sensitivity);
+      elements.meter.style.width = Math.min(100, detected.rms * 260) + "%";
+      const now = audioContext.currentTime * 1000;
+
+      if (!detected.symbol) {
+        if (now - lastToneAt > 11) {
+          lastSymbol = null;
+          elements.currentSymbol.textContent = "–";
+        }
+        return;
+      }
+
+      lastToneAt = now;
+      const changed = detected.symbol !== lastSymbol;
+      const enoughTimeForNext = now - lastEmitAt >= 18;
+      const repeatedSlot = !changed && now - lastEmitAt >= 23;
+      if ((changed && enoughTimeForNext) || repeatedSlot || lastEmitAt < 0) {
+        emitSymbol(detected.symbol, now);
+      }
+    }
+
+    async function startMicrophone() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Microphone API is unavailable. Use HTTPS or http://localhost in a current browser.", "error");
+        return;
+      }
+      try {
+        setStatus("Requesting microphone permission…");
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 }
+        });
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        await audioContext.resume();
+        source = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(512, 1, 1);
+        silentGain = audioContext.createGain();
+        silentGain.gain.value = 0;
+        processor.onaudioprocess = analyzeAudio;
+        source.connect(processor);
+        processor.connect(silentGain);
+        silentGain.connect(audioContext.destination);
+        elements.audioFormat.textContent = Math.round(audioContext.sampleRate) + " Hz · mono · 512 samples";
+        setButtons(true);
+        setStatus("Listening. Play the communication signal near this microphone.");
+      } catch (error) {
+        stream = null;
+        setButtons(false);
+        setStatus("Microphone could not start: " + error.message, "error");
+      }
+    }
+
+    async function stopMicrophone() {
+      if (processor) processor.disconnect();
+      if (source) source.disconnect();
+      if (silentGain) silentGain.disconnect();
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      if (audioContext) await audioContext.close();
+      stream = audioContext = source = processor = silentGain = null;
+      elements.meter.style.width = "0";
+      elements.currentSymbol.textContent = "–";
+      elements.audioFormat.textContent = "Not started";
+      setButtons(false);
+      setStatus("Microphone stopped.");
+    }
+
+    function runDecoderTest() {
+      try {
+        const command = protocol.decodeSymbols("AD1902030600007B");
+        if (!command.crcValid || command.code !== "P2" || command.waitMs !== 300 || command.onMs !== 600) {
+          throw new Error("Reference values did not match.");
+        }
+        receivedSymbols = "AD1902030600007B".split("");
+        updateStream();
+        acceptCommand(command, "Decoder self-test passed");
+      } catch (error) {
+        setStatus("Decoder self-test failed: " + error.message, "error");
+      }
+    }
+
+    function clearReceiver() {
+      receivedSymbols = [];
+      frameQueue = [];
+      history = [];
+      lastSymbol = null;
+      lastEmitAt = -Infinity;
+      lastToneAt = -Infinity;
+      updateStream();
+      renderHistory();
+      for (const id of ["codeValue", "modeValue", "crcValue", "waitValue", "onValue", "offValue"]) {
+        elements[id].textContent = "–";
+        elements[id].className = "value";
+      }
+      elements.rawFrame.textContent = "Frame: –";
+      setStatus(stream ? "Listening. Play the communication signal near this microphone." : "Ready. Start the microphone, then play a communication signal.");
+    }
+
+    elements.startButton.addEventListener("click", startMicrophone);
+    elements.stopButton.addEventListener("click", stopMicrophone);
+    elements.testButton.addEventListener("click", runDecoderTest);
+    elements.clearButton.addEventListener("click", clearReceiver);
+    elements.sensitivity.addEventListener("input", () => { elements.sensitivityValue.textContent = elements.sensitivity.value; });
+    window.addEventListener("pagehide", () => { if (stream) stopMicrophone(); });
+  })();
+  </script>
+</body>
+</html>
