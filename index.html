@@ -172,7 +172,7 @@
       <h1>ASSY Audio Protocol Receiver</h1>
       <p>Microphone decoder for acoustic lighting commands</p>
     </div>
-    <div class="protocol-badge">DTMF · AD + 7 bytes · CRC-8</div>
+    <div class="protocol-badge">DTMF · AD + 6 bytes · 800 ms · CRC-8</div>
   </header>
 
   <main>
@@ -211,8 +211,8 @@
           <h2>Recent valid commands</h2>
           <div style="overflow-x:auto">
             <table>
-              <thead><tr><th>Time</th><th>Code</th><th>Mode</th><th>Wait</th><th>ON</th><th>OFF</th><th>Repeat</th></tr></thead>
-              <tbody id="historyBody"><tr><td colspan="7" class="empty">No valid command received</td></tr></tbody>
+              <thead><tr><th>Time</th><th>Code</th><th>Mode</th><th>ON</th><th>OFF</th><th>Repeat</th></tr></thead>
+              <tbody id="historyBody"><tr><td colspan="6" class="empty">No valid command received</td></tr></tbody>
             </table>
           </div>
         </section>
@@ -228,9 +228,9 @@
         <div class="command">
           <div class="cell"><div class="label">Mode</div><div id="modeValue" class="value">–</div></div>
           <div class="cell"><div class="label">CRC</div><div id="crcValue" class="value">–</div></div>
-          <div class="cell"><div class="label">Wait before capture</div><div id="waitValue" class="value">–</div></div>
           <div class="cell"><div class="label">Light ON</div><div id="onValue" class="value">–</div></div>
           <div class="cell"><div class="label">Light OFF / Repeat</div><div id="offValue" class="value">–</div></div>
+          <div class="cell"><div class="label">Signal duration</div><div id="signalValue" class="value">800 ms</div></div>
           <div class="cell"><div class="label">Received at</div><div id="receivedValue" class="value">–</div></div>
         </div>
         <div id="rawFrame" class="raw-frame mono">Frame: –</div>
@@ -270,22 +270,21 @@
 
     function decodeFrame(values) {
       const bytes = Array.from(values);
-      if (bytes.length !== 7) throw new Error("A command frame must contain exactly 7 bytes.");
-      const mode = bytes[5] & 0x03;
-      const repeat = (bytes[5] >> 2) & 0x0f;
-      const expectedCrc = crc8(bytes.slice(0, 6));
+      if (bytes.length !== 6) throw new Error("A command frame must contain exactly 6 bytes.");
+      const mode = bytes[4] & 0x03;
+      const repeat = (bytes[4] >> 2) & 0x0f;
+      const expectedCrc = crc8(bytes.slice(0, 5));
       return {
         bytes,
         code: decodeCharacter(bytes[0]) + decodeCharacter(bytes[1]),
-        waitMs: bytes[2] * 100,
-        onMs: bytes[3] * 100,
-        offMs: bytes[4] * 100,
+        onMs: bytes[2] * 100,
+        offMs: bytes[3] * 100,
         mode,
         modeName: MODE_NAMES[mode] || "Unknown",
         repeat,
         expectedCrc,
-        receivedCrc: bytes[6],
-        crcValid: expectedCrc === bytes[6],
+        receivedCrc: bytes[5],
+        crcValid: expectedCrc === bytes[5],
         hex: bytes.map(value => value.toString(16).toUpperCase().padStart(2, "0")).join(" ")
       };
     }
@@ -295,10 +294,10 @@
         .filter(value => HEX.includes(value));
       let start = -1;
       for (let index = 0; index + 1 < clean.length; index += 1) {
-        if (clean[index] === "A" && clean[index + 1] === "D" && clean.length - index >= 16) start = index;
+        if (clean[index] === "A" && clean[index + 1] === "D" && clean.length - index >= 14) start = index;
       }
       if (start < 0) throw new Error("Complete AD preamble and 7-byte frame not found.");
-      const payload = clean.slice(start + 2, start + 16);
+      const payload = clean.slice(start + 2, start + 14);
       const bytes = [];
       for (let index = 0; index < payload.length; index += 2) {
         bytes.push(parseInt(payload[index] + payload[index + 1], 16));
@@ -369,8 +368,8 @@
     const elements = Object.fromEntries([
       "microphoneButton",
       "statusLine", "statusText", "meter", "currentSymbol", "symbolStream", "audioFormat",
-      "historyBody", "codeValue", "codeDetail", "modeValue", "crcValue", "waitValue", "onValue", "offValue",
-      "receivedValue", "rawFrame"
+      "historyBody", "codeValue", "codeDetail", "modeValue", "crcValue", "onValue", "offValue",
+      "signalValue", "receivedValue", "rawFrame"
     ].map(id => [id, document.getElementById(id)]));
 
     let stream = null;
@@ -407,7 +406,6 @@
       elements.modeValue.textContent = command.modeName;
       elements.crcValue.textContent = command.crcValid ? "VALID" : "FAILED";
       elements.crcValue.className = "value " + (command.crcValid ? "good" : "bad");
-      elements.waitValue.textContent = command.waitMs + " ms";
       elements.onValue.textContent = command.onMs + " ms";
       elements.offValue.textContent = command.offMs + " ms / " + command.repeat;
       elements.receivedValue.textContent = new Date().toLocaleTimeString();
@@ -416,13 +414,13 @@
 
     function renderHistory() {
       if (!history.length) {
-        elements.historyBody.innerHTML = '<tr><td colspan="7" class="empty">No valid command received</td></tr>';
+        elements.historyBody.innerHTML = '<tr><td colspan="6" class="empty">No valid command received</td></tr>';
         return;
       }
       elements.historyBody.textContent = "";
       for (const item of history) {
         const row = document.createElement("tr");
-        const values = [item.time, item.code, item.modeName, item.waitMs + " ms", item.onMs + " ms", item.offMs + " ms", item.repeat];
+        const values = [item.time, item.code, item.modeName, item.onMs + " ms", item.offMs + " ms", item.repeat];
         for (const value of values) {
           const cell = document.createElement("td");
           cell.textContent = value;
@@ -441,7 +439,7 @@
       history.unshift({ ...command, time: new Date().toLocaleTimeString() });
       history = history.slice(0, 10);
       renderHistory();
-      setStatus(sourceName + ": " + command.code + " · " + command.modeName + " · wait " + command.waitMs + " ms · ON " + command.onMs + " ms", "success");
+      setStatus(sourceName + ": " + command.code + " · " + command.modeName + " · ON " + command.onMs + " ms", "success");
       rearmReceiver();
       if (statusTimer) clearTimeout(statusTimer);
       statusTimer = setTimeout(() => {
@@ -473,16 +471,16 @@
           return;
         }
         if (preamble > 0) frameQueue.splice(0, preamble);
-        if (frameQueue.length < 16) {
+        if (frameQueue.length < 14) {
           setStatus("Preamble AD detected. Receiving command…");
           return;
         }
-        const candidate = frameQueue.slice(0, 16);
+        const candidate = frameQueue.slice(0, 14);
         try {
           const command = protocol.decodeSymbols(candidate);
           renderCommand(command);
           if (command.crcValid) {
-            frameQueue.splice(0, 16);
+            frameQueue.splice(0, 14);
             acceptCommand(command, "Valid acoustic command");
           } else {
             setStatus("CRC failed for frame " + command.hex + ". Resynchronizing.", "error");
@@ -524,8 +522,8 @@
 
       lastToneAt = now;
       const changed = detected.symbol !== lastSymbol;
-      const enoughTimeForNext = now - lastEmitAt >= 18;
-      const repeatedSlot = !changed && now - lastEmitAt >= 23;
+      const enoughTimeForNext = now - lastEmitAt >= 30;
+      const repeatedSlot = !changed && now - lastEmitAt >= 45;
       if ((changed && enoughTimeForNext) || repeatedSlot || lastEmitAt < 0) {
         emitSymbol(detected.symbol, now);
       }
