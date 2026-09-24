@@ -75,15 +75,9 @@
     button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
     button.primary:hover { background: #0f66cc; }
     button:disabled { cursor: default; opacity: .48; }
-    .sensitivity {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-left: auto;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-    input[type="range"] { width: 150px; accent-color: var(--blue); }
+    .microphone-button { min-width: 210px; }
+    .microphone-button.listening { background: var(--red); border-color: var(--red); color: #fff; }
+    .microphone-button.listening:hover { background: #bd3434; }
     .status-line {
       display: flex;
       align-items: center;
@@ -128,16 +122,27 @@
       color: var(--blue);
       font: 700 26px Consolas, monospace;
     }
+    .code-hero {
+      margin-bottom: 14px;
+      padding: 18px;
+      text-align: center;
+      background: #eef5fc;
+      border: 1px solid #c8d7e6;
+      border-left: 5px solid var(--blue);
+      border-radius: 4px;
+    }
+    .code-hero .value { margin-top: 2px; color: var(--navy); font-size: clamp(44px, 8vw, 78px); line-height: 1; }
+    .code-hero .detail { margin-top: 8px; color: var(--muted); font-size: 13px; }
     .command {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       border: 1px solid var(--border);
       border-radius: 4px;
       overflow: hidden;
     }
     .command .cell { min-height: 80px; padding: 12px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-    .command .cell:nth-child(3n) { border-right: 0; }
-    .command .cell:nth-last-child(-n+3) { border-bottom: 0; }
+    .command .cell:nth-child(2n) { border-right: 0; }
+    .command .cell:nth-last-child(-n+2) { border-bottom: 0; }
     .label { color: var(--muted); font-size: 12px; text-transform: uppercase; }
     .value { margin-top: 5px; font-size: 22px; font-weight: 700; overflow-wrap: anywhere; }
     .value.good { color: var(--green); }
@@ -153,10 +158,9 @@
       .protocol-badge { display: none; }
       main { width: min(100% - 20px, 1180px); margin-top: 10px; }
       .grid { grid-template-columns: 1fr; }
-      .sensitivity { width: 100%; margin-left: 0; }
-      input[type="range"] { flex: 1; }
+      .decoded-panel { order: -1; }
       .command { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .command .cell, .command .cell:nth-child(3n) { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+      .command .cell { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
       .command .cell:nth-child(2n) { border-right: 0; }
       .command .cell:nth-last-child(-n+2) { border-bottom: 0; }
     }
@@ -173,19 +177,12 @@
 
   <main>
     <section class="toolbar" aria-label="Receiver controls">
-      <button id="startButton" class="primary">Start microphone</button>
-      <button id="stopButton" disabled>Stop</button>
-      <button id="testButton">Test P2 decoder</button>
-      <button id="clearButton">Clear</button>
-      <label class="sensitivity">
-        Sensitivity <input id="sensitivity" type="range" min="1" max="100" value="72">
-        <strong id="sensitivityValue">72</strong>
-      </label>
+      <button id="microphoneButton" class="primary microphone-button">OPEN MICROPHONE</button>
     </section>
 
     <div id="statusLine" class="status-line">
       <span class="dot" aria-hidden="true"></span>
-      <span id="statusText">Ready. Start the microphone, then play a communication signal.</span>
+      <span id="statusText">Ready. Open the microphone, then play a communication signal.</span>
     </div>
 
     <div class="grid">
@@ -221,15 +218,20 @@
         </section>
       </div>
 
-      <section class="panel">
+      <section class="panel decoded-panel">
         <h2>Decoded command</h2>
+        <div class="code-hero">
+          <div class="label">Received code</div>
+          <div id="codeValue" class="value">–</div>
+          <div id="codeDetail" class="detail">Open the microphone to begin</div>
+        </div>
         <div class="command">
-          <div class="cell"><div class="label">Code</div><div id="codeValue" class="value">–</div></div>
           <div class="cell"><div class="label">Mode</div><div id="modeValue" class="value">–</div></div>
           <div class="cell"><div class="label">CRC</div><div id="crcValue" class="value">–</div></div>
           <div class="cell"><div class="label">Wait before capture</div><div id="waitValue" class="value">–</div></div>
           <div class="cell"><div class="label">Light ON</div><div id="onValue" class="value">–</div></div>
           <div class="cell"><div class="label">Light OFF / Repeat</div><div id="offValue" class="value">–</div></div>
+          <div class="cell"><div class="label">Received at</div><div id="receivedValue" class="value">–</div></div>
         </div>
         <div id="rawFrame" class="raw-frame mono">Frame: –</div>
         <p class="footnote">
@@ -365,9 +367,10 @@
 
     const protocol = window.AudioProtocol;
     const elements = Object.fromEntries([
-      "startButton", "stopButton", "testButton", "clearButton", "sensitivity", "sensitivityValue",
+      "microphoneButton",
       "statusLine", "statusText", "meter", "currentSymbol", "symbolStream", "audioFormat",
-      "historyBody", "codeValue", "modeValue", "crcValue", "waitValue", "onValue", "offValue", "rawFrame"
+      "historyBody", "codeValue", "codeDetail", "modeValue", "crcValue", "waitValue", "onValue", "offValue",
+      "receivedValue", "rawFrame"
     ].map(id => [id, document.getElementById(id)]));
 
     let stream = null;
@@ -381,6 +384,7 @@
     let lastEmitAt = -Infinity;
     let lastToneAt = -Infinity;
     let history = [];
+    let statusTimer = null;
 
     function setStatus(message, kind) {
       elements.statusText.textContent = message;
@@ -388,9 +392,9 @@
       if (stream) elements.statusLine.classList.add("listening");
     }
 
-    function setButtons(listening) {
-      elements.startButton.disabled = listening;
-      elements.stopButton.disabled = !listening;
+    function setMicrophoneButton(listening) {
+      elements.microphoneButton.textContent = listening ? "STOP MICROPHONE" : "OPEN MICROPHONE";
+      elements.microphoneButton.classList.toggle("listening", listening);
     }
 
     function updateStream() {
@@ -399,12 +403,14 @@
 
     function renderCommand(command) {
       elements.codeValue.textContent = command.code;
+      elements.codeDetail.textContent = "Valid acoustic command received";
       elements.modeValue.textContent = command.modeName;
       elements.crcValue.textContent = command.crcValid ? "VALID" : "FAILED";
       elements.crcValue.className = "value " + (command.crcValid ? "good" : "bad");
       elements.waitValue.textContent = command.waitMs + " ms";
       elements.onValue.textContent = command.onMs + " ms";
       elements.offValue.textContent = command.offMs + " ms / " + command.repeat;
+      elements.receivedValue.textContent = new Date().toLocaleTimeString();
       elements.rawFrame.textContent = "Frame: " + command.hex;
     }
 
@@ -436,6 +442,21 @@
       history = history.slice(0, 10);
       renderHistory();
       setStatus(sourceName + ": " + command.code + " · " + command.modeName + " · wait " + command.waitMs + " ms · ON " + command.onMs + " ms", "success");
+      rearmReceiver();
+      if (statusTimer) clearTimeout(statusTimer);
+      statusTimer = setTimeout(() => {
+        if (stream) setStatus("Listening for the next AD command…");
+      }, 1200);
+    }
+
+    function rearmReceiver() {
+      receivedSymbols = [];
+      frameQueue = [];
+      lastSymbol = null;
+      lastEmitAt = -Infinity;
+      lastToneAt = -Infinity;
+      elements.currentSymbol.textContent = "–";
+      updateStream();
     }
 
     function processFrameQueue() {
@@ -489,8 +510,7 @@
 
     function analyzeAudio(event) {
       const samples = event.inputBuffer.getChannelData(0);
-      const sensitivity = Number(elements.sensitivity.value);
-      const detected = protocol.detectTone(samples, audioContext.sampleRate, sensitivity);
+      const detected = protocol.detectTone(samples, audioContext.sampleRate, 72);
       elements.meter.style.width = Math.min(100, detected.rms * 260) + "%";
       const now = audioContext.currentTime * 1000;
 
@@ -532,11 +552,11 @@
         processor.connect(silentGain);
         silentGain.connect(audioContext.destination);
         elements.audioFormat.textContent = Math.round(audioContext.sampleRate) + " Hz · mono · 512 samples";
-        setButtons(true);
+        setMicrophoneButton(true);
         setStatus("Listening. Play the communication signal near this microphone.");
       } catch (error) {
         stream = null;
-        setButtons(false);
+        setMicrophoneButton(false);
         setStatus("Microphone could not start: " + error.message, "error");
       }
     }
@@ -551,46 +571,16 @@
       elements.meter.style.width = "0";
       elements.currentSymbol.textContent = "–";
       elements.audioFormat.textContent = "Not started";
-      setButtons(false);
+      setMicrophoneButton(false);
       setStatus("Microphone stopped.");
     }
 
-    function runDecoderTest() {
-      try {
-        const command = protocol.decodeSymbols("AD1902030600007B");
-        if (!command.crcValid || command.code !== "P2" || command.waitMs !== 300 || command.onMs !== 600) {
-          throw new Error("Reference values did not match.");
-        }
-        receivedSymbols = "AD1902030600007B".split("");
-        updateStream();
-        acceptCommand(command, "Decoder self-test passed");
-      } catch (error) {
-        setStatus("Decoder self-test failed: " + error.message, "error");
-      }
+    function toggleMicrophone() {
+      if (stream) stopMicrophone();
+      else startMicrophone();
     }
 
-    function clearReceiver() {
-      receivedSymbols = [];
-      frameQueue = [];
-      history = [];
-      lastSymbol = null;
-      lastEmitAt = -Infinity;
-      lastToneAt = -Infinity;
-      updateStream();
-      renderHistory();
-      for (const id of ["codeValue", "modeValue", "crcValue", "waitValue", "onValue", "offValue"]) {
-        elements[id].textContent = "–";
-        elements[id].className = "value";
-      }
-      elements.rawFrame.textContent = "Frame: –";
-      setStatus(stream ? "Listening. Play the communication signal near this microphone." : "Ready. Start the microphone, then play a communication signal.");
-    }
-
-    elements.startButton.addEventListener("click", startMicrophone);
-    elements.stopButton.addEventListener("click", stopMicrophone);
-    elements.testButton.addEventListener("click", runDecoderTest);
-    elements.clearButton.addEventListener("click", clearReceiver);
-    elements.sensitivity.addEventListener("input", () => { elements.sensitivityValue.textContent = elements.sensitivity.value; });
+    elements.microphoneButton.addEventListener("click", toggleMicrophone);
     window.addEventListener("pagehide", () => { if (stream) stopMicrophone(); });
   })();
   </script>
